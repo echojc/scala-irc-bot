@@ -3,88 +3,87 @@ package net.mtgto.irc
 import config.BotConfig
 import event._
 
-import akka.actor.{Actor, ActorSystem, Props}
-
 import org.pircbotx.{PircBotX, User => PircUser}
 import org.pircbotx.hooks.ListenerAdapter
 import org.pircbotx.hooks.events._
-import com.twitter.util.Eval
 import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.util.Date
+import java.util.{Timer, TimerTask}
+
+import scala.concurrent.duration._
+import scala.io.StdIn
+import scala.util.Try
 
 object DefaultClient {
-  protected[this] val setting: Config = new Eval()(new File("config/Config.scala"))
+  val settings: Config = sh.echo.echobot.Config
 
-  protected[this] val client: Client = new DefaultClient(setting)
+  val client: Client = new DefaultClient(settings)
 
-  protected[this] val channelNames: collection.mutable.HashSet[String] = collection.mutable.HashSet.empty[String]
+  val channelNames: collection.mutable.HashSet[String] = collection.mutable.HashSet.empty[String]
 
   def main(args: Array[String]): Unit = {
     client.connect
-
-    while (readLine("> ") != "exit") {}
     client.disconnect
   }
 }
 
-class DefaultClient[T <: PircBotX](val setting: Config) extends ListenerAdapter[T] with Client {
-  val logger = LoggerFactory.getLogger(this.getClass)
+class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter[T] with Client { client ⇒
+  val logger = LoggerFactory.getLogger(getClass)
 
-  protected[this] val innerClient: PircBotX = new PircBotX
+  val innerClient: PircBotX = new PircBotX
 
-  override val bots: Seq[Bot] = setting.bots map {
+  override val bots: Seq[Bot] = settings.bots flatMap {
     bot => loadBot(bot._1, bot._2)
   }
 
   innerClient.getListenerManager.addListener(this)
 
-  protected[this] val actorSystem = ActorSystem("TimerSystem")
-  protected[this] val timerActor = actorSystem.actorOf(Props[TimerActor], "net.mtgto.irc.DefaultClient.TimerActor")
-
-  import actorSystem.dispatcher
-  import concurrent.duration.DurationInt
-  import language.postfixOps
-  actorSystem.scheduler.schedule(60 seconds, setting.timerDelay milliseconds) {
-    timerActor ! (this, System.currentTimeMillis)
+  val timer = new Timer("TimerSystem", /*isDaemon =*/ true)
+  val timerTask = new TimerTask {
+    override def run(): Unit = {
+      client.bots foreach (_.onTimer(client))
+    }
   }
+  timer.schedule(timerTask, 0, settings.timerDelay)
 
-  protected[this] def loadBot(className: String, botConfig: Option[BotConfig]): Bot = {
-    import java.net.URLClassLoader
-
-    val directory = new File("bots")
-
-    val loader = new URLClassLoader(
-      directory.list map (new File(directory, _).toURI.toURL),
-      this.getClass.getClassLoader
-    )
-    botConfig match {
-      case Some(botConfig) =>
-        loader.loadClass(className).getConstructor(botConfig.getClass).newInstance(botConfig).asInstanceOf[Bot]
-      case None =>
-        loader.loadClass(className).newInstance.asInstanceOf[Bot]
+  def loadBot(className: String, botConfig: Option[BotConfig]): Option[Bot] = {
+    val loader = getClass.getClassLoader
+    Try(loader.loadClass(className)).toOption match {
+      case Some(botClazz) ⇒
+        botConfig match {
+          case Some(botConfig) =>
+            logger.info(s"loaded bot [$className] with botconfig [$botConfig]")
+            Some(botClazz.getConstructor(botConfig.getClass).newInstance(botConfig).asInstanceOf[Bot])
+          case None =>
+            logger.info(s"loaded bot [$className] with no botconfig")
+            Some(botClazz.newInstance.asInstanceOf[Bot])
+        }
+      case None ⇒
+        logger.info(s"could not find a bot with name [$className]")
+        None
     }
   }
 
   /**
    * a map channel names to user's nicknames.
    */
-  protected[this] val channelUsers = collection.mutable.HashMap.empty[String, collection.mutable.Set[String]]
+  val channelUsers = collection.mutable.HashMap.empty[String, collection.mutable.Set[String]]
 
   override def connect = {
-    innerClient.setEncoding(setting.encoding)
-    innerClient.setName(setting.nickname)
-    innerClient.setLogin(setting.username)
-    innerClient.setVersion(setting.realname)
-    innerClient.setMessageDelay(setting.messageDelay)
-    setting.password match {
+    innerClient.setEncoding(settings.encoding)
+    innerClient.setName(settings.nickname)
+    innerClient.setLogin(settings.username)
+    innerClient.setVersion(settings.realname)
+    innerClient.setMessageDelay(settings.messageDelay)
+    settings.password match {
       case Some(password) =>
-        innerClient.connect(setting.hostname, setting.port, password)
+        innerClient.connect(settings.hostname, settings.port, password)
       case None =>
-        innerClient.connect(setting.hostname, setting.port)
+        innerClient.connect(settings.hostname, settings.port)
     }
-    for (channel <- setting.channels) {
+    for (channel <- settings.channels) {
       innerClient.joinChannel(channel)
     }
   }
@@ -102,7 +101,7 @@ class DefaultClient[T <: PircBotX](val setting: Config) extends ListenerAdapter[
   }
 
   override def getUsers(channel: String): Set[String] = {
-    channelUsers.get(channel).map(_.toSet).getOrElse(Set.empty[String])
+    channelUsers.get(channel).map(_.toSet).getOrElse(Set.empty)
   }
 
   override def sendNotice(target: String, text: String) = {
