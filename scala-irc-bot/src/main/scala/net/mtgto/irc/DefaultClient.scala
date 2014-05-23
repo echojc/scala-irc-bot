@@ -16,19 +16,6 @@ import scala.concurrent.duration._
 import scala.io.StdIn
 import scala.util.Try
 
-object DefaultClient {
-  val settings: Config = sh.echo.echobot.Config
-
-  val client: Client = new DefaultClient(settings)
-
-  val channelNames: collection.mutable.HashSet[String] = collection.mutable.HashSet.empty[String]
-
-  def main(args: Array[String]): Unit = {
-    client.connect
-    client.disconnect
-  }
-}
-
 class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter[T] with Client { client ⇒
   val logger = LoggerFactory.getLogger(getClass)
 
@@ -49,8 +36,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   timer.schedule(timerTask, 0, settings.timerDelay)
 
   def loadBot(className: String, botConfig: Option[BotConfig]): Option[Bot] = {
-    val loader = getClass.getClassLoader
-    Try(loader.loadClass(className)).toOption match {
+    Try(getClass.getClassLoader.loadClass(className)).toOption match {
       case Some(botClazz) ⇒
         botConfig match {
           case Some(botConfig) =>
