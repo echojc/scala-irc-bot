@@ -30,4 +30,6 @@ trait Bot {
   def onTimer(client: Client) = {}
 
   def onDisconnect(client: Client) = {}
+
+  def onUnload(client: Client) = {}
 }

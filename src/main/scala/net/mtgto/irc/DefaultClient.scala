@@ -20,24 +20,31 @@ import scala.util.Try
 
 class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter[T] with Client { client ⇒
   val logger = LoggerFactory.getLogger(getClass)
-  val innerClient: PircBotX = new PircBotX
 
   val renderOptions = ConfigRenderOptions.concise.setFormatted(true)
-  logger.debug(s"got config: [${settings.root.render(renderOptions)}]")
+  logger.debug(s"got config: ${settings.root.render(renderOptions)}")
 
-  override val bots: Seq[Bot] = {
+  val innerClient: PircBotX = new PircBotX
+  innerClient.getListenerManager.addListener(this)
+
+  val loadedBotsLock = new Object()
+  var _loadedBots: Seq[Bot] = Seq.empty
+  def reloadBots(): Unit = loadedBotsLock.synchronized {
+    _loadedBots foreach (_.onUnload(this))
+
     val botsConfig = settings.getObject("bots").toConfig
     val bots = botsConfig.root.entrySet map (_.getKey) toSeq
 
     logger.info(s"Found bots in config: [$bots]")
 
-    bots flatMap { bot ⇒
+    _loadedBots = bots flatMap { bot ⇒
       val botConfig = botsConfig.getObject(bot).toConfig
       loadBot(bot.replace("-", "."), botConfig)
     }
   }
-
-  innerClient.getListenerManager.addListener(this)
+  override def bots = loadedBotsLock.synchronized {
+    _loadedBots
+  }
 
   val timer = new Timer("TimerSystem", /*isDaemon =*/ true)
   val timerTask = new TimerTask {
@@ -54,7 +61,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
         val withConfigCtorOption = ctors find (_.getParameterTypes.toSeq == Seq(classOf[Config]))
         withConfigCtorOption match {
           case Some(ctor) ⇒
-            logger.info(s"loaded bot [$className] with config [$botConfig]")
+            logger.info(s"loaded bot [$className] with config ${botConfig.root.render(renderOptions)}")
             Some(ctor.newInstance(botConfig).asInstanceOf[Bot])
           case None ⇒
             logger.info(s"loaded bot [$className] with no config")
@@ -72,6 +79,8 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   val channelUsers = collection.mutable.HashMap.empty[String, collection.mutable.Set[String]]
 
   override def connect = {
+    reloadBots()
+
     innerClient.setEncoding(settings.getString("encoding"))
     innerClient.setName(settings.getString("nickname"))
     innerClient.setLogin(settings.getString("username"))
@@ -87,8 +96,12 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
         innerClient.connect(hostname, port, password)
     }
 
+    val loadedBots = bots map (_.getClass.getSimpleName)
     val channels = settings.getStringList("channels")
-    channels foreach (innerClient.joinChannel)
+    channels foreach { channel ⇒
+      innerClient.joinChannel(channel)
+      sendMessage(channel, s"Started bots: ${loadedBots.mkString(", ")}")
+    }
   }
 
   override def disconnect = {

@@ -19,8 +19,17 @@ class SystemBot(config: Config) extends Bot {
       val command = text.split(' ').head.drop(commandPrefix.length)
       command match {
         case "reload" ⇒
-          logger.info("reloading config and bots")
-          client.sendMessage(channel, "reloading config and bots...")
+          client match {
+            case client: DefaultClient[_] ⇒
+              logger.info("reloading bots...")
+              client.reloadBots()
+              val loadedBots = client.bots map (_.getClass.getSimpleName)
+              client.sendMessage(channel, s"reloaded bots: ${loadedBots.mkString(", ")}")
+              logger.info("successfully reloaded bots")
+            case _ ⇒
+              logger.warn(s"Using a client that cannot reload bots!")
+              client.sendMessage(channel, "This client cannot reload bots!")
+          }
         case "shutdown" if isShutdownEnabled ⇒
           logger.info("shutting down!")
           client.sendMessage(channel, "I am shutting down!")

@@ -31,7 +31,7 @@ trait Client {
   /**
    * all loaded bots.
    */
-  val bots: Seq[Bot]
+  def bots: Seq[Bot]
 
   /**
    * find a bot by its FQCN.
