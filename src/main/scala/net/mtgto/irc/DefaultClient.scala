@@ -33,7 +33,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
     _loadedBots foreach (_.onUnload(this))
 
     val botsConfig = settings.getObject("bots").toConfig
-    val bots = botsConfig.root.entrySet map (_.getKey) toSeq
+    val bots = botsConfig.root.keySet.toSeq
 
     logger.info(s"Found bots in config: [$bots]")
 
