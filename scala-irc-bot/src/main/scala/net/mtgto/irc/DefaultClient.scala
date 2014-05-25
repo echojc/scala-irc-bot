@@ -76,6 +76,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
 
   override def disconnect = {
     innerClient.quitServer
+    bots foreach (_.onDisconnect(this))
   }
 
   override def isConnected: Boolean = {

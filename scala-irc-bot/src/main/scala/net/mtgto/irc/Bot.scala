@@ -28,4 +28,6 @@ trait Bot {
   def onQuit(client: Client, quit: Quit) = {}
 
   def onTimer(client: Client) = {}
+
+  def onDisconnect(client: Client) = {}
 }
