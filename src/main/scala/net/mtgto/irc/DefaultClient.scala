@@ -27,9 +27,10 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   val innerClient: PircBotX = new PircBotX
   innerClient.getListenerManager.addListener(this)
 
-  val loadedBotsLock = new Object()
   var _loadedBots: Seq[Bot] = Seq.empty
-  def reloadBots(): Unit = loadedBotsLock.synchronized {
+  override def bots = _loadedBots
+
+  def reloadBots(): Unit = {
     _loadedBots foreach (_.onUnload(this))
 
     val botsConfig = settings.getObject("bots").toConfig
@@ -41,9 +42,6 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
       val botConfig = botsConfig.getObject(bot).toConfig
       loadBot(bot.replace("-", "."), botConfig)
     }
-  }
-  override def bots = loadedBotsLock.synchronized {
-    _loadedBots
   }
 
   val timer = new Timer("TimerSystem", /*isDaemon =*/ true)
