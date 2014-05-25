@@ -78,7 +78,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
    */
   val channelUsers = collection.mutable.HashMap.empty[String, collection.mutable.Set[String]]
 
-  override def connect = {
+  override def connect() = {
     reloadBots()
 
     innerClient.setEncoding(settings.getString("encoding"))
@@ -104,7 +104,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
     }
   }
 
-  override def disconnect = {
+  override def disconnect() = {
     bots foreach (_.onUnload(this))
     innerClient.quitServer
     bots foreach (_.onDisconnect(this))
