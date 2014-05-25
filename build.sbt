@@ -1,6 +1,10 @@
 scalaVersion := "2.11.1"
 
-version := "1.0.0"
+version := "1.0.0-SNAPSHOT"
+
+name := "scala-irc-bot"
+
+organization := "sh.echo"
 
 resolvers ++= Seq(
   "sonatype-snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/",
