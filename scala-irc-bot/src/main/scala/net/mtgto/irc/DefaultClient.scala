@@ -1,8 +1,9 @@
 package net.mtgto.irc
 
-import config.BotConfig
-import event._
+import net.mtgto.irc.event._
 
+import com.typesafe.config.Config
+import com.typesafe.config.ConfigRenderOptions
 import org.pircbotx.{PircBotX, User => PircUser}
 import org.pircbotx.hooks.ListenerAdapter
 import org.pircbotx.hooks.events._
@@ -12,17 +13,28 @@ import java.io.File
 import java.util.Date
 import java.util.{Timer, TimerTask}
 
+import scala.collection.JavaConversions._
 import scala.concurrent.duration._
 import scala.io.StdIn
 import scala.util.Try
 
 class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter[T] with Client { client ⇒
   val logger = LoggerFactory.getLogger(getClass)
-
   val innerClient: PircBotX = new PircBotX
 
-  override val bots: Seq[Bot] = settings.bots flatMap {
-    bot => loadBot(bot._1, bot._2)
+  val renderOptions = ConfigRenderOptions.concise.setFormatted(true)
+  logger.debug(s"got config: [${settings.root.render(renderOptions)}]")
+
+  override val bots: Seq[Bot] = {
+    val botsConfig = settings.getObject("bots").toConfig
+    val bots = botsConfig.root.entrySet map (_.getKey) toSeq
+
+    logger.info(s"Found bots in config: [$bots]")
+
+    bots flatMap { bot ⇒
+      val botConfig = botsConfig.getObject(bot).toConfig
+      loadBot(bot.replace("-", "."), botConfig)
+    }
   }
 
   innerClient.getListenerManager.addListener(this)
@@ -33,21 +45,23 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
       client.bots foreach (_.onTimer(client))
     }
   }
-  timer.schedule(timerTask, 0, settings.timerDelay)
+  timer.schedule(timerTask, 0, settings.getLong("timer-delay"))
 
-  def loadBot(className: String, botConfig: Option[BotConfig]): Option[Bot] = {
+  def loadBot(className: String, botConfig: Config): Option[Bot] = {
     Try(getClass.getClassLoader.loadClass(className)).toOption match {
       case Some(botClazz) ⇒
-        botConfig match {
-          case Some(botConfig) =>
-            logger.info(s"loaded bot [$className] with botconfig [$botConfig]")
-            Some(botClazz.getConstructor(botConfig.getClass).newInstance(botConfig).asInstanceOf[Bot])
-          case None =>
-            logger.info(s"loaded bot [$className] with no botconfig")
-            Some(botClazz.newInstance.asInstanceOf[Bot])
+        val ctors = botClazz.getConstructors
+        val withConfigCtorOption = ctors find (_.getParameterTypes.toSeq == Seq(classOf[Config]))
+        withConfigCtorOption match {
+          case Some(ctor) ⇒
+            logger.info(s"loaded bot [$className] with config [$botConfig]")
+            Some(ctor.newInstance(botConfig).asInstanceOf[Bot])
+          case None ⇒
+            logger.info(s"loaded bot [$className] with no config")
+            Some(botClazz.getConstructor().newInstance().asInstanceOf[Bot])
         }
       case None ⇒
-        logger.info(s"could not find a bot with name [$className]")
+        logger.warn(s"could not find a bot with name [$className]")
         None
     }
   }
@@ -58,20 +72,23 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   val channelUsers = collection.mutable.HashMap.empty[String, collection.mutable.Set[String]]
 
   override def connect = {
-    innerClient.setEncoding(settings.encoding)
-    innerClient.setName(settings.nickname)
-    innerClient.setLogin(settings.username)
-    innerClient.setVersion(settings.realname)
-    innerClient.setMessageDelay(settings.messageDelay)
-    settings.password match {
-      case Some(password) =>
-        innerClient.connect(settings.hostname, settings.port, password)
-      case None =>
-        innerClient.connect(settings.hostname, settings.port)
+    innerClient.setEncoding(settings.getString("encoding"))
+    innerClient.setName(settings.getString("nickname"))
+    innerClient.setLogin(settings.getString("username"))
+    innerClient.setVersion(settings.getString("realname"))
+    innerClient.setMessageDelay(settings.getLong("message-delay"))
+
+    val hostname = settings.getString("hostname")
+    val port = settings.getInt("port")
+    settings.getString("password") match {
+      case "" =>
+        innerClient.connect(hostname, port)
+      case password @ _ =>
+        innerClient.connect(hostname, port, password)
     }
-    for (channel <- settings.channels) {
-      innerClient.joinChannel(channel)
-    }
+
+    val channels = settings.getStringList("channels")
+    channels foreach (innerClient.joinChannel)
   }
 
   override def disconnect = {
