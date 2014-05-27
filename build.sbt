@@ -1,6 +1,6 @@
 scalaVersion := "2.11.1"
 
-version := "0.0.1"
+version := "0.0.2"
 
 name := "scala-irc-bot"
 
@@ -14,7 +14,8 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.pircbotx" % "pircbotx" % "1.8",
   "org.slf4j" % "slf4j-api" % "1.7.7",
-  "com.typesafe" % "config" % "1.2.1"
+  "com.typesafe" % "config" % "1.2.1",
+  "ch.qos.logback" % "logback-classic" % "1.1.2" % "test"
 )
 
 scalacOptions ++= Seq(

@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.Date
 import java.util.{Timer, TimerTask}
+import javax.net.SocketFactory
+import javax.net.ssl.SSLSocketFactory
 
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
@@ -87,15 +89,25 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
 
     val hostname = settings.getString("hostname")
     val port = settings.getInt("port")
+    val useSsl = settings.getBoolean("use-ssl")
+
+    logger.trace(s"connecting to [$hostname]:[$port] (ssl: $useSsl)...")
+
+    val socketFactory =
+      if (useSsl) SSLSocketFactory.getDefault
+      else SocketFactory.getDefault
+
     settings.getString("password") match {
       case "" =>
-        innerClient.connect(hostname, port)
+        innerClient.connect(hostname, port, socketFactory)
       case password @ _ =>
-        innerClient.connect(hostname, port, password)
+        logger.trace(s"using password [$password]...")
+        innerClient.connect(hostname, port, password, socketFactory)
     }
 
     val loadedBots = bots map (_.getClass.getSimpleName)
     val channels = settings.getStringList("channels")
+    logger.trace(s"connecting to channels [${channels.mkString(", ")}]...")
     channels foreach { channel ⇒
       innerClient.joinChannel(channel)
       sendMessage(channel, s"Started bots: ${loadedBots.mkString(", ")}")
@@ -105,6 +117,7 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   override def disconnect() = {
     bots foreach (_.onUnload(this))
     innerClient.quitServer
+    timer.cancel()
     bots foreach (_.onDisconnect(this))
   }
 
