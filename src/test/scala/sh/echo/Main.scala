@@ -13,7 +13,6 @@ object Main extends App {
 
   Thread.sleep(20000)
   client.disconnect()
-  System.exit(0)
 }
 
 class TestBot extends Bot {

@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.util.Date
-import java.util.{Timer, TimerTask}
+import java.util.concurrent.{Executors, TimeUnit}
 import javax.net.SocketFactory
 import javax.net.ssl.SSLSocketFactory
 
@@ -46,13 +46,13 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
     }
   }
 
-  val timer = new Timer("TimerSystem", /*isDaemon =*/ true)
-  val timerTask = new TimerTask {
+  val scheduledExecutor = Executors.newScheduledThreadPool(1)
+  val timerDelay = settings.getLong("timer-delay")
+  scheduledExecutor.scheduleAtFixedRate(new Runnable {
     override def run(): Unit = {
       client.bots foreach (_.onTimer(client))
     }
-  }
-  timer.schedule(timerTask, 0, settings.getLong("timer-delay"))
+  }, timerDelay, timerDelay, TimeUnit.SECONDS)
 
   def loadBot(className: String, botConfig: Config): Option[Bot] = {
     Try(getClass.getClassLoader.loadClass(className)).toOption match {
@@ -117,8 +117,9 @@ class DefaultClient[T <: PircBotX](val settings: Config) extends ListenerAdapter
   override def disconnect() = {
     bots foreach (_.onUnload(this))
     innerClient.quitServer
-    timer.cancel()
+    scheduledExecutor.shutdownNow()
     bots foreach (_.onDisconnect(this))
+    innerClient.shutdown(true)
   }
 
   override def isConnected: Boolean = {
